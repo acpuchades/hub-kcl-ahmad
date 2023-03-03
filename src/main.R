@@ -58,34 +58,56 @@ patient_alsfrs <- ufmn_functional %>%
         last_alsfrs = last(alsfrs_total)
     )
 
+patient_alsfrs_y1 <- ufmn_functional %>%
+    group_by(pid) %>%
+    mutate(
+        y1_diff = (min(fecha_visita) + years(1)) - fecha_visita,
+    ) %>%
+    slice_min(y1_diff, n = 1) %>%
+    ungroup() %>%
+    filter(between(y1_diff, -dmonths(2), dmonths(4))) %>%
+    select(pid, y1_visit = "fecha_visita", y1_alsfrs = "alsfrs_total")
+
 data <-
-    select(ahmad_data, patient) %>%
-    left_join(biobank_patients, by = c(patient = "biobank_id"), multiple = "all") %>%
+    select(ahmad_data, patient, familial, c9_status, other_genes) %>%
+    left_join(biobank_patients, by = c(patient = "biobank_id"), multiple = "first") %>%
     left_join(ufmn_clinical, by = "pid") %>%
     left_join(patient_measures, by = "pid") %>%
     left_join(patient_respdata, by = "pid") %>%
     left_join(patient_nutrdata, by = "pid") %>%
     left_join(patient_alsfrs, by = "pid") %>%
+    left_join(patient_alsfrs_y1, by = "pid") %>%
     transmute(
-        patient = patient,
+        patient_id = patient,
+        gender = sexo,
         birthdate = fecha_nacimiento,
-        extraction_date = extraction_date,
+        sample_date = extraction_date,
+        familial = familial,
+        c9_status = c9_status,
+        other_genes = other_genes,
         phenotype = diagnosis,
+        baseline_weight = peso,
+        baseline_height = estatura,
+        baseline_bmi = imc,
+        cognitive_status = case_match(
+            resultado_estudio_cognitivo,
+            "Normal" ~ "Normal",
+            "DCL-Cognitivo" ~ "Ci",
+            "DCL-Conductual" ~ "Bi",
+            "DCL-Mixto" ~ "CiBi",
+            "DTA" ~ "DTA",
+            "DFT" ~ "DFT"
+        ),
         onset_date = fecha_inicio_clinica,
         onset_age = (onset_date - birthdate) / dyears(1),
-        gender = sexo,
-        familial = NA,
-        c9_status = NA,
-        other_genes = NA,
-        weight = peso,
-        height = estatura,
-        bmi = imc,
-        riluzole_start = fecha_inicio_riluzol,
         diagnosis_date = fecha_diagnostico,
+        riluzole_start = fecha_inicio_riluzol,
         niv_date = inicio_vmni,
         peg_date = colocacion_peg,
+        first_visit = first_visit,
+        y1_visit = y1_visit,
+        last_visit = last_visit,
         exitus_date = fecha_exitus,
-        cognitive_status = NA,
         last_progression_rate = case_when(
             exitus == TRUE ~
                 48 / ((fecha_exitus - fecha_inicio_clinica) / dmonths(1)),
@@ -98,6 +120,9 @@ data <-
                 (48 - first_alsfrs) / ((first_visit - fecha_inicio_clinica) / dmonths(1))
         ),
         first_progression_category = alsfrs_progression_category(first_progression_rate),
+        y1_progression_rate =
+            (first_alsfrs - y1_alsfrs) / ((y1_visit - first_visit) / dmonths(1)),
+        y1_progression_category = alsfrs_progression_category(y1_progression_rate),
     )
 
 write_xlsx(data, "output.xlsx")
